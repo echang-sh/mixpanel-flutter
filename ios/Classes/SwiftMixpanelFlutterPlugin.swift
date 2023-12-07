@@ -3,9 +3,9 @@ import UIKit
 import Mixpanel
 
 public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
-    
-    private var instance: MixpanelInstance?
-    var token: String?
+
+    private var mixpanelList: [MixpanelInstance?] = []
+    var tokens: String?
     var mixpanelProperties: [String: String]?
     let defaultFlushInterval = 60.0
     var trackAutomaticEvents: Bool?
@@ -152,19 +152,27 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
     
     private func handleInitialize(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
-        let token = arguments["token"] as? String
+        let tokens = arguments["token"] as? String
         let optOutTrackingDefault = arguments["optOutTrackingDefault"] as? Bool
         mixpanelProperties = arguments["mixpanelProperties"] as? [String: String]
         let superProperties = arguments["superProperties"] as? [String: Any]
-        self.token = token
+        self.tokens = tokens
         let trackAutomaticEvents = arguments["trackAutomaticEvents"] as! Bool
         self.trackAutomaticEvents = trackAutomaticEvents
-        instance = Mixpanel.initialize(token: token!, trackAutomaticEvents: trackAutomaticEvents,
-                                        instanceName: token!,
-                                       optOutTrackingByDefault: optOutTrackingDefault ?? false,
-                                       superProperties: MixpanelTypeHandler.mixpanelProperties(properties: superProperties, mixpanelProperties: mixpanelProperties))
-        instance?.flushInterval = defaultFlushInterval
-
+        
+        let tokenList = (tokens ?? "").components(separatedBy: ",")
+        for token in tokenList {
+            let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedToken.isEmpty {
+                let instance = Mixpanel.initialize(token: trimmedToken, trackAutomaticEvents: trackAutomaticEvents,
+                                                   instanceName: trimmedToken,
+                                                   optOutTrackingByDefault: optOutTrackingDefault ?? false,
+                                                   superProperties: MixpanelTypeHandler.mixpanelProperties(properties: superProperties, mixpanelProperties: mixpanelProperties))
+                instance.flushInterval = defaultFlushInterval
+                mixpanelList.append(instance)
+            }
+        }
+        
         result(nil)
     }
     
@@ -184,42 +192,58 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
     private func handleSetServerURL(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let serverURL = arguments["serverURL"] as! String
-        instance?.serverURL = serverURL
+        for instance in mixpanelList {
+            instance?.serverURL = serverURL
+        }
         result(nil)
     }
     
     private func handleSetLoggingEnabled(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let loggingEnabled = arguments["loggingEnabled"] as! Bool
-        instance?.loggingEnabled = loggingEnabled
+        for instance in mixpanelList {
+            instance?.loggingEnabled = loggingEnabled
+        }
         result(nil)
     }
 
     private func handleSetUseIpAddressForGeolocation(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let useIpAddressForGeolocation = arguments["useIpAddressForGeolocation"] as! Bool
-        instance?.useIPAddressForGeoLocation = useIpAddressForGeolocation
+        for instance in mixpanelList {
+            instance?.useIPAddressForGeoLocation = useIpAddressForGeolocation
+        }
         result(nil)
     }
     
     private func handleHasOptedOutTracking(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        result(instance?.hasOptedOutTracking())
+        var combineResult = true;
+        for instance in mixpanelList {
+            combineResult = combineResult && instance!.hasOptedOutTracking()
+        }
+        result(combineResult)
     }
     
     private func handleOptInTracking(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        instance?.optInTracking(distinctId: nil, properties: MixpanelTypeHandler.mixpanelProperties(properties: mixpanelProperties))
+        for instance in mixpanelList {
+            instance?.optInTracking(distinctId: nil, properties: MixpanelTypeHandler.mixpanelProperties(properties: mixpanelProperties))
+        }
         result(nil)
     }
     
     private func handleOptOutTracking(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        instance?.optOutTracking()
+        for instance in mixpanelList {
+            instance?.optOutTracking()
+        }
         result(nil)
     }
     
     private func handleIdentify(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let distinctId = arguments["distinctId"] as! String
-        instance?.identify(distinctId: distinctId)
+        for instance in mixpanelList {
+            instance?.identify(distinctId: distinctId)
+        }
         result(nil)
     }
     
@@ -227,7 +251,9 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let alias = arguments["alias"] as! String
         let distinctId = arguments["distinctId"] as! String
-        instance?.createAlias(alias, distinctId: distinctId)
+        for instance in mixpanelList {
+            instance?.createAlias(alias, distinctId: distinctId)
+        }
         result(nil)
     }
     
@@ -236,7 +262,9 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         let event = arguments["eventName"] as! String
         let properties = arguments["properties"] as? [String: Any]
         let mpProperties = MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties)
-        instance?.track(event: event, properties: mpProperties)
+        for instance in mixpanelList {
+            instance?.track(event: event, properties: mpProperties)
+        }
         result(nil)
     }
     
@@ -247,7 +275,9 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         let groups = arguments["groups"] as? [String: Any]
         let mpProperties = MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties)
         let mpGroups = MixpanelTypeHandler.mixpanelProperties(properties: groups)
-        instance?.trackWithGroups(event: event, properties: mpProperties, groups: mpGroups)
+        for instance in mixpanelList {
+            instance?.trackWithGroups(event: event, properties: mpProperties, groups: mpGroups)
+        }
         result(nil)
     }
     
@@ -257,7 +287,9 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         guard let mixpanelTypeGroupID = MixpanelTypeHandler.mixpanelTypeValue(arguments["groupID"] as Any) else {
             return
         }
-        instance?.setGroup(groupKey: groupKey, groupID: mixpanelTypeGroupID)
+        for instance in mixpanelList {
+            instance?.setGroup(groupKey: groupKey, groupID: mixpanelTypeGroupID)
+        }
         result(nil)
     }
     
@@ -267,7 +299,9 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         guard let mixpanelTypeGroupID = MixpanelTypeHandler.mixpanelTypeValue(arguments["groupID"] as Any) else {
             return
         }
-        instance?.addGroup(groupKey: groupKey, groupID: mixpanelTypeGroupID)
+        for instance in mixpanelList {
+            instance?.addGroup(groupKey: groupKey, groupID: mixpanelTypeGroupID)
+        }
         result(nil)
     }
     
@@ -277,64 +311,86 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         guard let mixpanelTypeGroupID = MixpanelTypeHandler.mixpanelTypeValue(arguments["groupID"] as Any) else {
             return
         }
-        instance?.removeGroup(groupKey: groupKey, groupID: mixpanelTypeGroupID)
+        for instance in mixpanelList {
+            instance?.removeGroup(groupKey: groupKey, groupID: mixpanelTypeGroupID)
+        }
         result(nil)
     }
     
     private func handleRegisterSuperProperties(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
-        instance?.registerSuperProperties(MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties))
+        for instance in mixpanelList {
+            instance?.registerSuperProperties(MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties))
+        }
         result(nil)
     }
     
     private func handleRegisterSuperPropertiesOnce(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
-        instance?.registerSuperPropertiesOnce(MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties))
+        for instance in mixpanelList {
+            instance?.registerSuperPropertiesOnce(MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties))
+        }
         result(nil)
     }
     
     private func handleUnregisterSuperProperty(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let propertyName = arguments["propertyName"] as! String
-        instance?.unregisterSuperProperty(propertyName)
+        for instance in mixpanelList {
+            instance?.unregisterSuperProperty(propertyName)
+        }
         result(nil)
     }
     
     private func handleGetSuperProperties(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        result(instance?.currentSuperProperties())
+        if let instance = mixpanelList.first {
+            result(instance?.currentSuperProperties())
+        }
     }
     
     private func handleClearSuperProperties(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        instance?.clearSuperProperties()
+        for instance in mixpanelList {
+            instance?.clearSuperProperties()
+        }
         result(nil)
     }
     
     private func handleTimeEvent(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let event = arguments["eventName"] as! String
-        instance?.time(event: event)
+        for instance in mixpanelList {
+            instance?.time(event: event)
+        }
         result(nil)
     }
     
     private func handleEventElapsedTime(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let event = arguments["eventName"] as! String
-        result(instance?.eventElapsedTime(event: event))
+        if let instance = mixpanelList.first {
+            result(instance?.eventElapsedTime(event: event))
+        }
     }
     
     private func handleReset(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        instance?.reset()
+        for instance in mixpanelList {
+            instance?.reset()
+        }
         result(nil)
     }
     
     private func handleGetDistinctId(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        result(instance?.distinctId)
+        if let instance = mixpanelList.first {
+            result(instance?.distinctId)
+        }
     }
     
     private func handleFlush(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        instance?.flush()
+        for instance in mixpanelList {
+            instance?.flush()
+        }
         result(nil)
     }
     
@@ -342,21 +398,27 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
     func handleSet(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
-        instance?.people.set(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties))
+        for instance in mixpanelList {
+            instance?.people.set(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties))
+        }
         result(nil)
     }
     
     private func handleSetOnce(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
-        instance?.people.setOnce(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties))
+        for instance in mixpanelList {
+            instance?.people.setOnce(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties, mixpanelProperties: mixpanelProperties))
+        }
         result(nil)
     }
     
     private func handleUnset(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let propertyName = arguments["name"] as! String
-        instance?.people.unset(properties: [propertyName])
+        for instance in mixpanelList {
+            instance?.people.unset(properties: [propertyName])
+        }
         result(nil)
     }
     
@@ -364,28 +426,36 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
     private func handleIncrement(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
-        instance?.people.increment(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        for instance in mixpanelList {
+            instance?.people.increment(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        }
         result(nil)
     }
     
     private func handleAppend(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
-        instance?.people.append(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        for instance in mixpanelList {
+            instance?.people.append(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        }
         result(nil)
     }
     
     private func handleUnion(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
-        instance?.people.union(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        for instance in mixpanelList {
+            instance?.people.union(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        }
         result(nil)
     }
     
     private func handleRemove(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
-        instance?.people.remove(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        for instance in mixpanelList {
+            instance?.people.remove(properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        }
         result(nil)
     }
     
@@ -393,17 +463,23 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let properties = arguments["properties"] as? [String: Any]
         let amount = arguments["amount"] as! Double
-        instance?.people.trackCharge(amount: amount, properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        for instance in mixpanelList {
+            instance?.people.trackCharge(amount: amount, properties: MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        }
         result(nil)
     }
     
     private func handleClearCharges(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        instance?.people.clearCharges()
+        for instance in mixpanelList {
+            instance?.people.clearCharges()
+        }
         result(nil)
     }
     
     private func handleDeleteUser(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        instance?.people.deleteUser()
+        for instance in mixpanelList {
+            instance?.people.deleteUser()
+        }
         result(nil)
     }
     
@@ -421,7 +497,7 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
     // MARK: - Group
     private func handleDeleteGroup(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
-        guard let token = arguments["token"] as? String else {
+        guard let tokens = arguments["token"] as? String else {
             return
         }
         guard let groupKey = arguments["groupKey"] as? String else {
@@ -430,14 +506,17 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         guard let groupID = arguments["groupID"] else {
             return
         }
-        let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
-        group?.deleteGroup()
+        let tokenList = tokens.components(separatedBy: ",")
+        for token in tokenList {
+            let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
+            group?.deleteGroup()
+        }
         result(nil)
     }
     
     func handleGroupSetProperties(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
-        guard let token = arguments["token"] as? String else {
+        guard let tokens = arguments["token"] as? String else {
             return
         }
         guard let groupKey = arguments["groupKey"] as? String else {
@@ -447,14 +526,18 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
             return
         }
         let properties = arguments["properties"] as? [String: Any]
-        let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
-        group?.set(properties:  MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        
+        let tokenList = tokens.components(separatedBy: ",")
+        for token in tokenList {
+            let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
+            group?.set(properties:  MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        }
         result(nil)
     }
     
     private func handleGroupSetPropertyOnce(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
-        guard let token = arguments["token"] as? String else {
+        guard let tokens = arguments["token"] as? String else {
             return
         }
         guard let groupKey = arguments["groupKey"] as? String else {
@@ -464,14 +547,18 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
             return
         }
         let properties = arguments["properties"] as? [String: Any]
-        let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
-        group?.setOnce(properties:  MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        
+        let tokenList = tokens.components(separatedBy: ",")
+        for token in tokenList {
+            let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
+            group?.setOnce(properties:  MixpanelTypeHandler.mixpanelProperties(properties: properties))
+        }
         result(nil)
     }
     
     private func handleGroupUnsetProperty(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
-        guard let token = arguments["token"] as? String else {
+        guard let tokens = arguments["token"] as? String else {
             return
         }
         guard let groupKey = arguments["groupKey"] as? String else {
@@ -481,14 +568,18 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
             return
         }
         let propertyName = arguments["propertyName"] as! String
-        let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
-        group?.unset(property: propertyName)
+        
+        let tokenList = tokens.components(separatedBy: ",")
+        for token in tokenList {
+            let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
+            group?.unset(property: propertyName)
+        }
         result(nil)
     }
     
     private func handleGroupRemovePropertyValue(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
-        guard let token = arguments["token"] as? String else {
+        guard let tokens = arguments["token"] as? String else {
             return
         }
         guard let groupKey = arguments["groupKey"] as? String else {
@@ -502,14 +593,18 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         guard let mixpanelTypeValue = MixpanelTypeHandler.mixpanelTypeValue(value) else {
             return
         }
-        let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
-        group?.remove(key: name, value: mixpanelTypeValue)
+        
+        let tokenList = tokens.components(separatedBy: ",")
+        for token in tokenList {
+            let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
+            group?.remove(key: name, value: mixpanelTypeValue)
+        }
         result(nil)
     }
     
     private func handleGroupUnionProperty(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
-        guard let token = arguments["token"] as? String else {
+        guard let tokens = arguments["token"] as? String else {
             return
         }
         guard let groupKey = arguments["groupKey"] as? String else {
@@ -520,15 +615,21 @@ public class SwiftMixpanelFlutterPlugin: NSObject, FlutterPlugin {
         }
         let name = arguments["name"] as! String
         let values = arguments["value"] as! [Any]
-        let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
-        group?.union(key: name, values: values.map() { MixpanelTypeHandler.mixpanelTypeValue($0)! })
+        
+        let tokenList = tokens.components(separatedBy: ",")
+        for token in tokenList {
+            let group = mixpanelGroup(token, groupKey: groupKey, groupID: groupID)
+            group?.union(key: name, values: values.map() { MixpanelTypeHandler.mixpanelTypeValue($0)! })
+        }
         result(nil)
     }
 
     private func handleSetFlushBatchSize(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let arguments = call.arguments as? [String: Any] ?? [String: Any]()
         let batchSize = arguments["flushBatchSize"] as! Int
-        instance?.flushBatchSize = batchSize
+        for instance in mixpanelList {
+            instance?.flushBatchSize = batchSize
+        }
         result(nil)
     }
     

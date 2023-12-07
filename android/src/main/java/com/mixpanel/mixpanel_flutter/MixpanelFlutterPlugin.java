@@ -12,6 +12,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
@@ -29,7 +30,7 @@ import com.mixpanel.android.mpmetrics.MixpanelAPI;
 public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
 
     private MethodChannel channel;
-    private MixpanelAPI mixpanel;
+    private List<MixpanelAPI> mixpanelList = new ArrayList<MixpanelAPI>();
     private Context context;
     private JSONObject mixpanelProperties;
 
@@ -182,8 +183,8 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
     }
 
     private void handleInitialize(MethodCall call, Result result) {
-        final String token = call.argument("token");
-        if (token == null) {
+        final String tokens = call.argument("token");
+        if (tokens == null) {
             throw new RuntimeException("Your Mixpanel Token was not set");
         }
         Map<String, Object> mixpanelPropertiesMap =
@@ -206,61 +207,74 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         Boolean optOutTrackingDefault = call.<Boolean>argument("optOutTrackingDefault");
         Boolean trackAutomaticEvents = call.<Boolean>argument("trackAutomaticEvents");
 
-        mixpanel = MixpanelAPI.getInstance(context, token,
-                optOutTrackingDefault == null ? false : optOutTrackingDefault,
-                superAndMixpanelProperties, null, trackAutomaticEvents);
+        String[] tokenList = tokens.split(",");
+        for (String token : tokenList) {
+            final String trimmedToken = token.trim();
+            if (!trimmedToken.isEmpty()) {
+                mixpanelList.add(MixpanelAPI.getInstance(context, trimmedToken,
+                        optOutTrackingDefault == null ? false : optOutTrackingDefault,
+                        superAndMixpanelProperties, null, trackAutomaticEvents));
+            }
+        }
+        if (mixpanelList.isEmpty()) {
+            throw new RuntimeException("Failed to initialize Mixpanel");
+        }
 
-        result.success(Integer.toString(mixpanel.hashCode()));
+        result.success(Integer.toString(mixpanelList.get(0).hashCode()));
     }
 
     private void handleSetServerURL(MethodCall call, Result result) {
         String serverURL = call.argument("serverURL");
-        mixpanel.setServerURL(serverURL);
+        iterateMixpanelList((mixpanel) -> mixpanel.setServerURL(serverURL));
         result.success(null);
     }
 
     private void handleSetLoggingEnabled(MethodCall call, Result result) {
         Boolean enableLogging = call.argument("loggingEnabled");
-        mixpanel.setEnableLogging(enableLogging);
+        iterateMixpanelList((mixpanel) -> mixpanel.setEnableLogging(enableLogging));
         result.success(null);
     }
 
     private void handleSetUseIpAddressForGeolocation(MethodCall call, Result result) {
         Boolean useIpAddressForGeolocation = call.argument("useIpAddressForGeolocation");
-        mixpanel.setUseIpAddressForGeolocation(useIpAddressForGeolocation);
+        iterateMixpanelList((mixpanel) ->
+                mixpanel.setUseIpAddressForGeolocation(useIpAddressForGeolocation));
         result.success(null);
     }
 
     private void handleHasOptedOutTracking(MethodCall call, Result result) {
-        result.success(mixpanel.hasOptedOutTracking());
+        final Boolean combinResult = mixpanelList.stream()
+                .map(mixpanel -> mixpanel.hasOptedOutTracking())
+                .reduce(!mixpanelList.isEmpty(), (combine, optedOut) -> combine && optedOut);
+        result.success(combinResult);
     }
 
     private void handleOptInTracking(MethodCall call, Result result) {
-        mixpanel.optInTracking(null, mixpanelProperties);
+        iterateMixpanelList((mixpanel) -> mixpanel.optInTracking(null, mixpanelProperties));
         result.success(null);
     }
 
     private void handleOptOutTracking(MethodCall call, Result result) {
-        mixpanel.optOutTracking();
+        iterateMixpanelList((mixpanel) -> mixpanel.optOutTracking());
         result.success(null);
     }
 
     private void handleSetFlushBatchSize(MethodCall call, Result result) {
         int flushBatchSize = call.argument("flushBatchSize");
-        mixpanel.setFlushBatchSize(flushBatchSize);
+        iterateMixpanelList((mixpanel) -> mixpanel.setFlushBatchSize(flushBatchSize));
         result.success(null);
     }
 
     private void handleIdentify(MethodCall call, Result result) {
         String distinctId = call.argument("distinctId");
-        mixpanel.identify(distinctId);
+        iterateMixpanelList((mixpanel) -> mixpanel.identify(distinctId));
         result.success(null);
     }
 
     private void handleAlias(MethodCall call, Result result) {
         String distinctId = call.argument("distinctId");
         String alias = call.argument("alias");
-        mixpanel.alias(alias, distinctId);
+        iterateMixpanelList((mixpanel) -> mixpanel.alias(alias, distinctId));
         result.success(null);
     }
 
@@ -270,13 +284,13 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         JSONObject properties;
         try {
             properties = new JSONObject(mapProperties == null ? EMPTY_HASHMAP : mapProperties);
-            properties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            JSONObject mergedProperties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            iterateMixpanelList((mixpanel) -> mixpanel.track(eventName, mergedProperties));
+            result.success(null);
         } catch (JSONException e) {
             result.error("MixpanelFlutterException", e.getLocalizedMessage(), null);
             return;
         }
-        mixpanel.track(eventName, properties);
-        result.success(null);
     }
 
     private void handleRegisterSuperProperties(MethodCall call, Result result) {
@@ -284,13 +298,13 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         JSONObject properties;
         try {
             properties = new JSONObject(mapProperties == null ? EMPTY_HASHMAP : mapProperties);
-            properties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            JSONObject mergedProperties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            iterateMixpanelList((mixpanel) -> mixpanel.registerSuperProperties(mergedProperties));
+            result.success(null);
         } catch (JSONException e) {
             result.error("MixpanelFlutterException", e.getLocalizedMessage(), null);
             return;
         }
-        mixpanel.registerSuperProperties(properties);
-        result.success(null);
     }
 
     private void handleRegisterSuperPropertiesOnce(MethodCall call, Result result) {
@@ -298,31 +312,31 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         JSONObject properties;
         try {
             properties = new JSONObject(mapProperties == null ? EMPTY_HASHMAP : mapProperties);
-            properties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            JSONObject mergedProperties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            iterateMixpanelList((mixpanel) -> mixpanel.registerSuperPropertiesOnce(mergedProperties));
+            result.success(null);
         } catch (JSONException e) {
             result.error("MixpanelFlutterException", e.getLocalizedMessage(), null);
             return;
         }
-        mixpanel.registerSuperPropertiesOnce(properties);
-        result.success(null);
     }
 
     private void handleUnregisterSuperProperty(MethodCall call, Result result) {
         String propertyName = call.argument("propertyName");
-        mixpanel.unregisterSuperProperty(propertyName);
+        iterateMixpanelList((mixpanel) -> mixpanel.unregisterSuperProperty(propertyName));
         result.success(null);
     }
 
     private void handleUnion(MethodCall call, Result result) {
         String name = call.argument("name");
         ArrayList<Object> value = call.argument("value");
-        mixpanel.getPeople().union(name, new JSONArray(value));
+        iterateMixpanelList((mixpanel) -> mixpanel.getPeople().union(name, new JSONArray(value)));
         result.success(null);
     }
 
     private void handleGetSuperProperties(MethodCall call, Result result) {
         try {
-            result.success(MixpanelFlutterHelper.toMap(mixpanel.getSuperProperties()));
+            result.success(MixpanelFlutterHelper.toMap(mixpanelList.get(0).getSuperProperties()));
         } catch (JSONException e) {
             result.error("MixpanelFlutterException", e.getLocalizedMessage(), null);
             result.success(null);
@@ -330,32 +344,43 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
     }
 
     private void handleClearSuperProperties(MethodCall call, Result result) {
-        mixpanel.clearSuperProperties();
+        iterateMixpanelList((mixpanel) -> mixpanel.clearSuperProperties());
         result.success(null);
     }
 
     private void handleTimeEvent(MethodCall call, Result result) {
         String eventName = call.argument("eventName");
-        mixpanel.timeEvent(eventName);
+        iterateMixpanelList((mixpanel) -> mixpanel.timeEvent(eventName));
         result.success(null);
     }
 
     private void handleEventElapsedTime(MethodCall call, Result result) {
         String eventName = call.argument("eventName");
-        result.success(mixpanel.eventElapsedTime(eventName));
+        if (mixpanelList.isEmpty()) {
+            result.error("MixpanelFlutterError", "Not initialized", null);
+            result.success(null);
+            return;
+        }
+
+        result.success(mixpanelList.get(0).eventElapsedTime(eventName));
     }
 
     private void handleReset(MethodCall call, Result result) {
-        mixpanel.reset();
+        iterateMixpanelList((mixpanel) -> mixpanel.reset());
         result.success(null);
     }
 
     private void handleGetDistinctId(MethodCall call, Result result) {
-        result.success(mixpanel.getDistinctId());
+        if (mixpanelList.isEmpty()) {
+            result.error("MixpanelFlutterError", "Not initialized", null);
+            result.success(null);
+            return;
+        }
+        result.success(mixpanelList.get(0).getDistinctId());
     }
 
     private void handleFlush(MethodCall call, Result result) {
-        mixpanel.flush();
+        iterateMixpanelList((mixpanel) -> mixpanel.flush());
         result.success(null);
     }
 
@@ -364,18 +389,18 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         JSONObject properties;
         try {
             properties = new JSONObject(mapProperties == null ? EMPTY_HASHMAP : mapProperties);
-            properties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            JSONObject mergedProperties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            iterateMixpanelList((mixpanel) -> mixpanel.getPeople().set(mergedProperties));
+            result.success(null);
         } catch (JSONException e) {
             result.error("MixpanelFlutterException", e.getLocalizedMessage(), null);
             return;
         }
-        mixpanel.getPeople().set(properties);
-        result.success(null);
     }
 
     private void handleUnset(MethodCall call, Result result) {
         String propertyName = call.argument("name");
-        mixpanel.getPeople().unset(propertyName);
+        iterateMixpanelList((mixpanel) -> mixpanel.getPeople().unset(propertyName));
         result.success(null);
     }
 
@@ -384,13 +409,13 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         JSONObject properties;
         try {
             properties = new JSONObject(mapProperties == null ? EMPTY_HASHMAP : mapProperties);
-            properties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            JSONObject mergedProperties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            iterateMixpanelList((mixpanel) -> mixpanel.getPeople().setOnce(mergedProperties));
+            result.success(null);
         } catch (JSONException e) {
             result.error("MixpanelFlutterException", e.getLocalizedMessage(), null);
             return;
         }
-        mixpanel.getPeople().setOnce(properties);
-        result.success(null);
     }
 
     private void handleTrackCharge(MethodCall call, Result result) {
@@ -399,42 +424,42 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         JSONObject properties;
         try {
             properties = new JSONObject(mapProperties == null ? EMPTY_HASHMAP : mapProperties);
-            properties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            JSONObject mergedProperties = MixpanelFlutterHelper.getMergedProperties(properties, mixpanelProperties);
+            iterateMixpanelList((mixpanel) -> mixpanel.getPeople().trackCharge(charge, mergedProperties));
+            result.success(null);
         } catch (JSONException e) {
             result.error("MixpanelFlutterException", e.getLocalizedMessage(), null);
             return;
         }
-        mixpanel.getPeople().trackCharge(charge, properties);
-        result.success(null);
     }
 
     private void handleClearCharges(MethodCall call, Result result) {
-        mixpanel.getPeople().clearCharges();
+        iterateMixpanelList((mixpanel) -> mixpanel.getPeople().clearCharges());
         result.success(null);
     }
 
     private void handleIncrement(MethodCall call, Result result) {
         Map<String, Number> properties = call.<HashMap<String, Number>>argument("properties");
-        mixpanel.getPeople().increment(properties);
+        iterateMixpanelList((mixpanel) -> mixpanel.getPeople().increment(properties));
         result.success(null);
     }
 
     private void handleAppend(MethodCall call, Result result) {
         String name = call.argument("name");
         Object value = call.argument("value");
-        mixpanel.getPeople().append(name, value);
+        iterateMixpanelList((mixpanel) -> mixpanel.getPeople().append(name, value));
         result.success(null);
     }
 
     private void handleDeleteUser(MethodCall call, Result result) {
-        mixpanel.getPeople().deleteUser();
+        iterateMixpanelList((mixpanel) -> mixpanel.getPeople().deleteUser());
         result.success(null);
     }
 
     private void handleRemove(MethodCall call, Result result) {
         String name = call.argument("name");
         Object value = call.argument("value");
-        mixpanel.getPeople().remove(name, value);
+        iterateMixpanelList((mixpanel) -> mixpanel.getPeople().remove(name, value));
         result.success(null);
     }
 
@@ -442,35 +467,36 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         String eventName = call.argument("eventName");
         Map<String, Object> eventProperties = call.<HashMap<String, Object>>argument("properties");
         Map<String, Object> eventGroups = call.<HashMap<String, Object>>argument("groups");
-        mixpanel.trackWithGroups(eventName, eventProperties, eventGroups);
+        iterateMixpanelList((mixpanel) ->
+                mixpanel.trackWithGroups(eventName, eventProperties, eventGroups));
         result.success(null);
     }
 
     private void handleSetGroup(MethodCall call, Result result) {
         String groupKey = call.argument("groupKey");
         Object groupID = call.argument("groupID");
-        mixpanel.setGroup(groupKey, groupID);
+        iterateMixpanelList((mixpanel) -> mixpanel.setGroup(groupKey, groupID));
         result.success(null);
     }
 
     private void handleAddGroup(MethodCall call, Result result) {
         String groupKey = call.argument("groupKey");
         Object groupID = call.argument("groupID");
-        mixpanel.addGroup(groupKey, groupID);
+        iterateMixpanelList((mixpanel) -> mixpanel.addGroup(groupKey, groupID));
         result.success(null);
     }
 
     private void handleRemoveGroup(MethodCall call, Result result) {
         String groupKey = call.argument("groupKey");
         Object groupID = call.argument("groupID");
-        mixpanel.removeGroup(groupKey, groupID);
+        iterateMixpanelList((mixpanel) -> mixpanel.removeGroup(groupKey, groupID));
         result.success(null);
     }
 
     private void handleDeleteGroup(MethodCall call, Result result) {
         String groupKey = call.argument("groupKey");
         Object groupID = call.argument("groupID");
-        mixpanel.getGroup(groupKey, groupID).deleteGroup();
+        iterateMixpanelList((mixpanel) -> mixpanel.getGroup(groupKey, groupID).deleteGroup());
         result.success(null);
     }
 
@@ -479,7 +505,8 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         Object groupID = call.argument("groupID");
         Map<String, Object> mapProperties = call.<HashMap<String, Object>>argument("properties");
         JSONObject properties = new JSONObject(mapProperties == null ? EMPTY_HASHMAP : mapProperties);
-        mixpanel.getGroup(groupKey, groupID).set(properties);
+        iterateMixpanelList((mixpanel) ->
+                mixpanel.getGroup(groupKey, groupID).set(properties));
         result.success(null);
     }
 
@@ -488,7 +515,7 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         Object groupID = call.argument("groupID");
         Map<String, Object> mapProperties = call.<HashMap<String, Object>>argument("properties");
         JSONObject properties = new JSONObject(mapProperties == null ? EMPTY_HASHMAP : mapProperties);
-        mixpanel.getGroup(groupKey, groupID).setOnce(properties);
+        iterateMixpanelList((mixpanel) -> mixpanel.getGroup(groupKey, groupID).setOnce(properties));
         result.success(null);
     }
 
@@ -496,7 +523,8 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         String groupKey = call.argument("groupKey");
         Object groupID = call.argument("groupID");
         String propertyName = call.argument("propertyName");
-        mixpanel.getGroup(groupKey, groupID).unset(propertyName);
+        iterateMixpanelList((mixpanel) ->
+                mixpanel.getGroup(groupKey, groupID).unset(propertyName));
         result.success(null);
     }
 
@@ -505,7 +533,7 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         Object groupID = call.argument("groupID");
         String name = call.argument("name");
         Object value = call.argument("value");
-        mixpanel.getGroup(groupKey, groupID).remove(name, value);
+        iterateMixpanelList((mixpanel) -> mixpanel.getGroup(groupKey, groupID).remove(name, value));
         result.success(null);
     }
 
@@ -514,7 +542,8 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
         Object groupID = call.argument("groupID");
         String name = call.argument("name");
         ArrayList<Object> value = call.argument("value");
-        mixpanel.getGroup(groupKey, groupID).union(name, new JSONArray(value));
+        iterateMixpanelList((mixpanel) ->
+                mixpanel.getGroup(groupKey, groupID).union(name, new JSONArray(value)));
         result.success(null);
     }
 
@@ -522,4 +551,15 @@ public class MixpanelFlutterPlugin implements FlutterPlugin, MethodCallHandler {
     public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
         channel.setMethodCallHandler(null);
     }
+
+    private void iterateMixpanelList(MixpanelMethod method) {
+        for (MixpanelAPI mixpanel : mixpanelList) {
+            method.execute(mixpanel);
+        }
+    }
+}
+
+@FunctionalInterface
+interface MixpanelMethod {
+    void execute(MixpanelAPI mixpanel);
 }
